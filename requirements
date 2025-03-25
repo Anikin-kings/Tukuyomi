@@ -1,0 +1,6 @@
+streamlit
+feedparser
+transformers
+torch
+wordcloud
+matplotlib
