@@ -1,0 +1,5 @@
+Google News RSS
+Streamlit
+Hugging Face
+feedparser
+WordCloud library
