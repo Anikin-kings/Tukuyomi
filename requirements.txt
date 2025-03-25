@@ -1,5 +1,4 @@
-Google News RSS
-Streamlit
-Hugging Face
+streamlit
 feedparser
-WordCloud library
+Wordcloud
+matplotlib
