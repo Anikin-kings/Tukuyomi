@@ -4,40 +4,37 @@ import feedparser
 import streamlit as st
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
-import torch
 from transformers import pipeline
 
-# -----------------------------
-# Fix for asyncio event loop issues in Streamlit
-# -----------------------------
+# ---------------------------------------------------
+# Ensure asyncio event loop exists for Streamlit
+# ---------------------------------------------------
 try:
     asyncio.get_running_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# -----------------------------
-# Explicit Environment & Model Setup
-# -----------------------------
-os.environ["TORCH_SHOW_CPP_STACKTRACES"] = "1"  # For clearer error reporting
+# Disable parallelism warnings from tokenizers
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# Use GPU if available, otherwise CPU
-device_flag = 0 if torch.cuda.is_available() else -1
-
-# Initialize Hugging Face pipelines with explicit models and device
-sentiment_pipeline_model = pipeline(
+# ---------------------------------------------------
+# Initialize Hugging Face Pipelines (CPU-only)
+# ---------------------------------------------------
+sentiment_model = pipeline(
     "sentiment-analysis",
     model="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-    device=device_flag
-)
-summarizer_pipeline_model = pipeline(
-    "summarization",
-    model="sshleifer/distilbart-cnn-12-6",
-    device=device_flag
+    device=-1  # Force CPU usage
 )
 
-# -----------------------------
+summarization_model = pipeline(
+    "summarization",
+    model="sshleifer/distilbart-cnn-12-6",
+    device=-1  # Force CPU usage
+)
+
+# ---------------------------------------------------
 # Helper Functions
-# -----------------------------
+# ---------------------------------------------------
 def fetch_news(topic="technology", limit=5):
     """
     Fetch news articles from Google News RSS for a given topic.
@@ -49,70 +46,69 @@ def fetch_news(topic="technology", limit=5):
     for entry in feed.entries[:limit]:
         articles.append({
             "title": entry.title,
-            "summary": entry.summary  # summary/description provided by the RSS feed
+            "summary": entry.summary  # Use provided summary/description
         })
     return articles
 
-def analyze_text(text):
+def analyze_article(text):
     """
     Analyze sentiment and generate a summary for the provided text.
-    Returns a tuple: (sentiment label, sentiment confidence, summary text)
+    Returns a tuple: (sentiment label, confidence score, summary text)
     """
     try:
-        sentiment_result = sentiment_pipeline_model(text)[0]
+        sentiment_result = sentiment_model(text)[0]
         sentiment_label = sentiment_result["label"]
         sentiment_score = sentiment_result["score"]
     except Exception as e:
         sentiment_label, sentiment_score = "Error", 0
 
     try:
-        summary_result = summarizer_pipeline_model(text, max_length=50, min_length=10, do_sample=False)
+        summary_result = summarization_model(text, max_length=50, min_length=10, do_sample=False)
         summary_text = summary_result[0]["summary_text"]
     except Exception as e:
         summary_text = "Error during summarization."
 
     return sentiment_label, sentiment_score, summary_text
 
-def create_wordcloud(articles):
+def generate_wordcloud(articles):
     """
-    Create a word cloud from the summaries of the articles.
+    Generate a word cloud from the summaries of articles.
     Returns a matplotlib figure.
     """
-    combined_text = " ".join([article["summary"] for article in articles])
+    combined_text = " ".join(article["summary"] for article in articles)
     wc = WordCloud(width=800, height=400, background_color="white").generate(combined_text)
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.imshow(wc, interpolation="bilinear")
     ax.axis("off")
     return fig
 
-# -----------------------------
+# ---------------------------------------------------
 # Streamlit App Interface
-# -----------------------------
-st.set_page_config(page_title="AI News Sentiment Analyzer", layout="wide")
-st.title("📰 AI-Powered News Sentiment Analyzer")
+# ---------------------------------------------------
+st.set_page_config(page_title="AI News Analyzer", layout="wide")
+st.title("📰 AI-Powered News Analyzer")
 
-# Topic input from user
-topic = st.text_input("Enter a topic to analyze:", value="technology")
+# User input: Topic selection
+topic = st.text_input("Enter a topic to analyze:", "technology")
 
-if st.button("Analyze News"):
-    st.info(f"Fetching news articles for **{topic}**...")
+if st.button("Fetch & Analyze"):
+    st.info(f"Fetching news for topic: {topic}")
     articles = fetch_news(topic)
 
     if not articles:
         st.error("No articles found. Try a different topic.")
     else:
-        # Container for displaying article results
+        # Process and display each article's analysis
         for article in articles:
             st.subheader(article["title"])
-            # Use the article's summary for sentiment and summarization analysis
-            sentiment, confidence, summary = analyze_text(article["summary"])
+            sentiment, confidence, summary = analyze_article(article["summary"])
             st.write(f"**Sentiment:** {sentiment} (Confidence: {confidence:.2f})")
             st.write(f"**Summary:** {summary}")
             st.markdown("---")
 
-        # Display the word cloud
+        # Generate and display the word cloud from article summaries
         st.subheader("Word Cloud from Article Summaries")
-        wc_fig = create_wordcloud(articles)
+        wc_fig = generate_wordcloud(articles)
         st.pyplot(wc_fig)
 
-st.markdown("⚡ Powered by AI & Streamlit | Built by [Your Name]")
+st.markdown("⚡ Powered by AI & Streamlit | Built by [Abubakr Farid]")
