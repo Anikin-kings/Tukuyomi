@@ -1,5 +1,6 @@
 streamlit
 feedparser
-transformers
 matplotlib
 wordcloud
+nltk
+transformers
