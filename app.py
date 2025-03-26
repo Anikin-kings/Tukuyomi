@@ -4,27 +4,27 @@ import feedparser
 import streamlit as st
 import matplotlib.pyplot as plt
 from wordcloud import WordCloud
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from transformers import pipeline
 
-# ---------------------------------------------------
-# Ensure asyncio event loop exists for Streamlit
-# ---------------------------------------------------
+# -----------------------------
+# Ensure NLTK VADER Lexicon is downloaded
+# -----------------------------
+nltk.download('vader_lexicon')
+
+# -----------------------------
+# Fix for asyncio event loop issues in Streamlit
+# -----------------------------
 try:
     asyncio.get_running_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# Disable parallelism warnings from tokenizers
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-# ---------------------------------------------------
-# Initialize Hugging Face Pipelines (CPU-only)
-# ---------------------------------------------------
-sentiment_model = pipeline(
-    "sentiment-analysis",
-    model="distilbert/distilbert-base-uncased-finetuned-sst-2-english",
-    device=-1  # Force CPU usage
-)
+# -----------------------------
+# Initialize VADER and Summarization Pipeline
+# -----------------------------
+sentiment_analyzer = SentimentIntensityAnalyzer()
 
 summarization_model = pipeline(
     "summarization",
@@ -32,9 +32,9 @@ summarization_model = pipeline(
     device=-1  # Force CPU usage
 )
 
-# ---------------------------------------------------
+# -----------------------------
 # Helper Functions
-# ---------------------------------------------------
+# -----------------------------
 def fetch_news(topic="technology", limit=5):
     """
     Fetch news articles from Google News RSS for a given topic.
@@ -46,33 +46,38 @@ def fetch_news(topic="technology", limit=5):
     for entry in feed.entries[:limit]:
         articles.append({
             "title": entry.title,
-            "summary": entry.summary  # Use provided summary/description
+            "summary": entry.summary  # Using the RSS-provided summary/description
         })
     return articles
 
-def analyze_article(text):
+def analyze_text(text):
     """
-    Analyze sentiment and generate a summary for the provided text.
-    Returns a tuple: (sentiment label, confidence score, summary text)
+    Analyze sentiment using VADER and generate a summary using Hugging Face.
+    Returns a tuple: (sentiment label, confidence score, summary text).
     """
-    try:
-        sentiment_result = sentiment_model(text)[0]
-        sentiment_label = sentiment_result["label"]
-        sentiment_score = sentiment_result["score"]
-    except Exception as e:
-        sentiment_label, sentiment_score = "Error", 0
-
+    # VADER sentiment analysis
+    sentiment_scores = sentiment_analyzer.polarity_scores(text)
+    compound = sentiment_scores["compound"]
+    if compound >= 0.05:
+        sentiment_label = "POSITIVE"
+    elif compound <= -0.05:
+        sentiment_label = "NEGATIVE"
+    else:
+        sentiment_label = "NEUTRAL"
+    confidence = abs(compound)
+    
+    # Generate summary using Hugging Face summarizer
     try:
         summary_result = summarization_model(text, max_length=50, min_length=10, do_sample=False)
         summary_text = summary_result[0]["summary_text"]
     except Exception as e:
         summary_text = "Error during summarization."
-
-    return sentiment_label, sentiment_score, summary_text
+    
+    return sentiment_label, confidence, summary_text
 
 def generate_wordcloud(articles):
     """
-    Generate a word cloud from the summaries of articles.
+    Generate a word cloud from the summaries of the articles.
     Returns a matplotlib figure.
     """
     combined_text = " ".join(article["summary"] for article in articles)
@@ -82,11 +87,11 @@ def generate_wordcloud(articles):
     ax.axis("off")
     return fig
 
-# ---------------------------------------------------
+# -----------------------------
 # Streamlit App Interface
-# ---------------------------------------------------
-st.set_page_config(page_title="AI News Analyzer", layout="wide")
-st.title("📰 AI-Powered News Analyzer")
+# -----------------------------
+st.set_page_config(page_title="AI News Analyzer with VADER", layout="wide")
+st.title("📰 AI-Powered News Analyzer with VADER")
 
 # User input: Topic selection
 topic = st.text_input("Enter a topic to analyze:", "technology")
@@ -94,19 +99,19 @@ topic = st.text_input("Enter a topic to analyze:", "technology")
 if st.button("Fetch & Analyze"):
     st.info(f"Fetching news for topic: {topic}")
     articles = fetch_news(topic)
-
+    
     if not articles:
         st.error("No articles found. Try a different topic.")
     else:
-        # Process and display each article's analysis
+        # Process and display each article
         for article in articles:
             st.subheader(article["title"])
-            sentiment, confidence, summary = analyze_article(article["summary"])
+            sentiment, confidence, summary = analyze_text(article["summary"])
             st.write(f"**Sentiment:** {sentiment} (Confidence: {confidence:.2f})")
             st.write(f"**Summary:** {summary}")
             st.markdown("---")
-
-        # Generate and display the word cloud from article summaries
+        
+        # Display word cloud from article summaries
         st.subheader("Word Cloud from Article Summaries")
         wc_fig = generate_wordcloud(articles)
         st.pyplot(wc_fig)
